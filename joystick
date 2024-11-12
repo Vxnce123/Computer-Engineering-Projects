@@ -1,0 +1,31 @@
+import machine
+import time
+
+# Define the pins for X and Y axes (choose appropriate GPIO pins)
+x_pin = machine.ADC(machine.Pin(26))  # GP26 for X-axis
+y_pin = machine.ADC(machine.Pin(27))  # GP27 for Y-axis
+
+# The ADC range is typically 0-65535 on the Pico, but we can normalize it to 0-3.3V
+def read_joystick():
+    # Read raw analog values
+    x_value = x_pin.read_u16()  # Read X-axis
+    y_value = y_pin.read_u16()  # Read Y-axis
+
+    # Normalize to voltage range (0-3.3V) by converting the 16-bit ADC range to voltage
+    x_voltage = (x_value / 65535) 
+    y_voltage = (y_value / 65535) 
+
+    # Return the raw values and the voltage readings
+    return x_value, y_value, x_voltage, y_voltage
+
+# Main loop
+while True:
+    # Read joystick values
+    x_value, y_value, x_voltage, y_voltage = read_joystick()
+
+    # Print the raw values and voltages
+    print("X Raw:", x_value, "Y Raw:", y_value)
+
+
+    # Wait a short time before next reading
+    time.sleep(1)
