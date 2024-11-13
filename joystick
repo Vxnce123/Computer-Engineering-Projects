@@ -29,3 +29,83 @@ while True:
 
     # Wait a short time before next reading
     time.sleep(1)
+
+///////////////////////////////
+
+from machine import ADC, Pin
+import time
+
+# Set up the analog pins (ADC) for X and Y
+x_pin = ADC(Pin(26))  # Adjust pin number as needed
+y_pin = ADC(Pin(27))  # Adjust pin number as needed
+
+# Configure ADC width and attenuation if needed (platform-specific)
+x_pin.atten(ADC.ATTN_11DB)  # Full range: 0-3.3V
+y_pin.atten(ADC.ATTN_11DB)
+
+# Define your joystick's min, max, and neutral positions
+min_value = 100
+neutral_value = 3000
+max_value = 4000
+
+def map_value(value):
+    if value < neutral_value:
+        # Map from min_value to neutral_value
+        return (value - neutral_value) / (neutral_value - min_value) * 100
+    else:
+        # Map from neutral_value to max_value
+        return (value - neutral_value) / (max_value - neutral_value) * 100
+
+# Read and map values in a loop
+while True:
+    x_value = x_pin.read()
+    y_value = y_pin.read()
+
+    # Map the raw values to a range of -100 to 100
+    x_mapped = map_value(x_value)
+    y_mapped = map_value(y_value)
+
+    print("X-axis:", x_mapped, "Y-axis:", y_mapped)
+
+    time.sleep(0.1)
+
+/////////////////
+
+from machine import ADC, Pin
+import time
+
+# Set up the analog pins (ADC) for X and Y axes
+x_pin = ADC(Pin(32))  # Replace with your pin number
+y_pin = ADC(Pin(33))  # Replace with your pin number
+
+# Configure ADC attenuation (if your microcontroller supports it)
+# This sets the range to read values from 0 to 3.3V
+x_pin.atten(ADC.ATTN_11DB)
+y_pin.atten(ADC.ATTN_11DB)
+
+# Define joystick's min, neutral, and max values
+min_value = 100
+neutral_value = 3000
+max_value = 4000
+
+# Function to map raw values to a range of -100 to 100
+def map_value(value):
+    if value < neutral_value:
+        # Map from min_value to neutral_value
+        return (value - neutral_value) / (neutral_value - min_value) * 100
+    else:
+        # Map from neutral_value to max_value
+        return (value - neutral_value) / (max_value - neutral_value) * 100
+
+# Loop to read and print mapped values
+while True:
+    x_value = x_pin.read()  # Read raw X-axis value
+    y_value = y_pin.read()  # Read raw Y-axis value
+
+    # Map the raw values to a range of -100 to 100
+    x_mapped = map_value(x_value)
+    y_mapped = map_value(y_value)
+
+    print("X-axis:", x_mapped, "Y-axis:", y_mapped)
+
+    time.sleep(0.1)  # Small delay to make the output readable
