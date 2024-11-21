@@ -1,0 +1,421 @@
+import time
+from machine import Pin, PWM
+import network
+import socket
+
+# Define GPIO pin for LED
+reds = Pin(15, Pin.OUT)
+
+# Set up PWM for LED brightness control on pin 15
+pwm = PWM(reds)
+pwm.freq(1000)  # Set PWM frequency (1000Hz)
+
+# Timing variables
+currentTime = time.ticks_ms()
+elapsedtime = time.ticks_ms() - currentTime
+
+# Wi-Fi credentials
+ssid = "SmartRG-00ea"
+pw = "68469c9e8f"
+
+# Connect to Wi-Fi
+wlan = network.WLAN(network.STA_IF)
+wlan.active(True)
+wlan.connect(ssid, pw)
+
+while not wlan.isconnected():
+    print("Connecting...")
+    time.sleep(1)
+print("Connected!")
+
+wlanInfo = wlan.ifconfig()
+print("My Pico's IP address is...", wlanInfo[0])
+
+# Function to read HTML content from a file
+def get_html(html_name):
+    try:
+        with open(html_name, "r") as file:
+            html = file.read()
+        return html
+    except OSError as e:
+        print(f"Error reading file {html_name}: {e}")
+        return "<html><body><h1>Error: Unable to load HTML file</h1></body></html>"
+
+# Set up the web server to listen on port 80
+addr = socket.getaddrinfo("0.0.0.0", 80)[0][-1]
+s = socket.socket()
+s.bind(addr)
+s.listen(1)
+
+print("Listening on", addr)
+
+while True:
+    try:
+        cl, addr = s.accept()
+        print('Client connected from', addr)
+        r = cl.recv(1024)
+        r = str(r)
+
+        # Extract joystick Y value from the request URL
+        y_pos = None
+        if 'Y=' in r:
+            # Extract Y value from the request
+            y_pos_index = r.find('Y=') + 2
+            y_pos_end = r.find(' ', y_pos_index)
+            if y_pos_end == -1:
+                y_pos_end = r.find('\r', y_pos_index)
+            y_pos = int(r[y_pos_index:y_pos_end])
+
+        if y_pos is not None:
+            # Map the Y-axis value (-100 to 100) to PWM range (0-65535)
+            # Ensure PWM is 0 if joystick is close to neutral
+            if abs(y_pos) < 10:  # Dead zone threshold for neutral position
+                pwm.duty_u16(0)  # Set PWM to 0 (turn off LED)
+            else:
+                pwm_value = int((y_pos + 100) * (65535 / 200))  # Map Y (-100 to 100) to PWM range (0-65535)
+                pwm.duty_u16(pwm_value)  # Set PWM duty cycle to control LED brightness
+        else:
+            pwm.duty_u16(0)  # Turn off LED if no Y value is received (joystick not touched)
+
+        # Send the HTML response to the client (browser)
+        response = get_html("index.html")  # Make sure the HTML file exists
+        cl.send('HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n')
+        cl.send(response)
+        cl.close()
+
+    except OSError as e:
+        cl.close()
+        print("Socket error:", e)
+    except Exception as e:
+        print("Unexpected error:", e)
+        cl.close()
+
+/////
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Joystick WebSocket Example</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            padding-top: 50px;
+        }
+        canvas {
+            background-color: #f4f4f4;
+            display: block;
+            margin: 0 auto;
+        }
+        #output {
+            margin-top: 20px;
+            font-size: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Joystick</h1>
+    <canvas id="joystickCanvas" width="300" height="300"></canvas>
+    <div id="output">
+        X: <span id="x">0</span> | Y: <span id="y">0</span>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('joystickCanvas');
+        const ctx = canvas.getContext('2d');
+        const xOutput = document.getElementById('x');
+        const yOutput = document.getElementById('y');
+
+        const joystickRadius = 100;
+        const stickRadius = 30;
+        let isMoving = false;
+        let centerX = canvas.width / 2;
+        let centerY = canvas.height / 2;
+        let stickX = centerX;
+        let stickY = centerY;
+
+        // WebSocket connection to the server (Pico W)
+        const socket = new WebSocket('ws://<PICO_IP>:80');  // Replace with your Pico W's IP address
+
+        socket.onopen = () => {
+            console.log("WebSocket connection established");
+        };
+
+        socket.onmessage = (event) => {
+            // You can handle incoming messages here (if needed)
+            console.log("Received message:", event.data);
+        };
+
+        socket.onclose = () => {
+            console.log("WebSocket connection closed");
+        };
+
+        // Draw the joystick and stick
+        function drawJoystick() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height); // Clear the canvas
+
+            // Draw the joystick background
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, joystickRadius, 0, Math.PI * 2);
+            ctx.fillStyle = '#D3D3D3';
+            ctx.fill();
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 5;
+            ctx.stroke();
+
+            // Draw the stick
+            ctx.beginPath();
+            ctx.arc(stickX, stickY, stickRadius, 0, Math.PI * 2);
+            ctx.fillStyle = '#F08080';
+            ctx.fill();
+        }
+
+        // Get the position relative to the canvas
+        function getPosition(event) {
+            let rect = canvas.getBoundingClientRect();
+            let x = event.clientX - rect.left;
+            let y = event.clientY - rect.top;
+            return { x, y };
+        }
+
+        // Start moving the stick
+        canvas.addEventListener('mousedown', (e) => {
+            isMoving = true;
+            const position = getPosition(e);
+            updateStickPosition(position.x, position.y);
+        });
+
+        // Update stick position when moving
+        canvas.addEventListener('mousemove', (e) => {
+            if (isMoving) {
+                const position = getPosition(e);
+                updateStickPosition(position.x, position.y);
+            }
+        });
+
+        // Stop moving the stick
+        canvas.addEventListener('mouseup', () => {
+            isMoving = false;
+            resetStick();
+        });
+
+        // Touch events for mobile support
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            isMoving = true;
+            const position = getPosition(e.touches[0]);
+            updateStickPosition(position.x, position.y);
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            if (isMoving) {
+                const position = getPosition(e.touches[0]);
+                updateStickPosition(position.x, position.y);
+            }
+        });
+
+        canvas.addEventListener('touchend', () => {
+            isMoving = false;
+            resetStick();
+        });
+
+        // Update the stick's position based on user input
+        function updateStickPosition(x, y) {
+            const distance = Math.sqrt(Math.pow(x - centerX, 2) + Math.pow(y - centerY, 2));
+            if (distance <= joystickRadius) {
+                stickX = x;
+                stickY = y;
+            } else {
+                const angle = Math.atan2(y - centerY, x - centerX);
+                stickX = centerX + joystickRadius * Math.cos(angle);
+                stickY = centerY + joystickRadius * Math.sin(angle);
+            }
+
+            // Update the displayed X and Y values
+            const xRelative = Math.round((stickX - centerX) / joystickRadius * 100);
+            const yRelative = Math.round((stickY - centerY) / joystickRadius * 100);
+
+            xOutput.textContent = xRelative;
+            yOutput.textContent = yRelative;
+
+            drawJoystick();
+
+            // Send Y value over WebSocket to Pico W for PWM control
+            socket.send(yRelative.toString());
+        }
+
+        // Reset the stick to the center and revert X and Y values
+        function resetStick() {
+            stickX = centerX;
+            stickY = centerY;
+            xOutput.textContent = 0;
+            yOutput.textContent = 0;
+            drawJoystick();
+        }
+
+        // Initial drawing of the joystick
+        drawJoystick();
+    </script>
+</body>
+</html>
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Joystick Example</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            padding-top: 50px;
+        }
+        canvas {
+            background-color: #f4f4f4;
+            display: block;
+            margin: 0 auto;
+        }
+        #output {
+            margin-top: 20px;
+            font-size: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Joystick</h1>
+    
+    <!-- Canvas for the joystick -->
+    <canvas id="joystickCanvas" width="300" height="300"></canvas>
+    
+    <div id="output">
+        X: <span id="x">0</span> | Y: <span id="y">0</span>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('joystickCanvas');
+        const ctx = canvas.getContext('2d');
+        const xOutput = document.getElementById('x');
+        const yOutput = document.getElementById('y');
+
+        const joystickRadius = 100;
+        const stickRadius = 30;
+        let isMoving = false;
+        let centerX = canvas.width / 2;
+        let centerY = canvas.height / 2;
+        let stickX = centerX;
+        let stickY = centerY;
+
+        // Draw the joystick and stick
+        function drawJoystick() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height); // Clear the canvas
+            
+            // Draw the joystick background
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, joystickRadius, 0, Math.PI * 2);
+            ctx.fillStyle = '#D3D3D3';
+            ctx.fill();
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 5;
+            ctx.stroke();
+            
+            // Draw the stick
+            ctx.beginPath();
+            ctx.arc(stickX, stickY, stickRadius, 0, Math.PI * 2);
+            ctx.fillStyle = '#F08080';
+            ctx.fill();
+        }
+
+        // Get the position relative to the canvas
+        function getPosition(event) {
+            let rect = canvas.getBoundingClientRect();
+            let x = event.clientX - rect.left;
+            let y = event.clientY - rect.top;
+            return { x, y };
+        }
+
+        // Start moving the stick
+        canvas.addEventListener('mousedown', (e) => {
+            isMoving = true;
+            const position = getPosition(e);
+            updateStickPosition(position.x, position.y);
+        });
+
+        // Update stick position when moving
+        canvas.addEventListener('mousemove', (e) => {
+            if (isMoving) {
+                const position = getPosition(e);
+                updateStickPosition(position.x, position.y);
+            }
+        });
+
+        // Stop moving the stick
+        canvas.addEventListener('mouseup', () => {
+            isMoving = false;
+            resetStick();
+        });
+
+        // Touch events for mobile support
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            isMoving = true;
+            const position = getPosition(e.touches[0]);
+            updateStickPosition(position.x, position.y);
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            if (isMoving) {
+                const position = getPosition(e.touches[0]);
+                updateStickPosition(position.x, position.y);
+            }
+        });
+
+        canvas.addEventListener('touchend', () => {
+            isMoving = false;
+            resetStick();
+        });
+
+        // Update the stick's position based on user input
+        function updateStickPosition(x, y) {
+            const distance = Math.sqrt(Math.pow(x - centerX, 2) + Math.pow(y - centerY, 2));
+            if (distance <= joystickRadius) {
+                stickX = x;
+                stickY = y;
+            } else {
+                const angle = Math.atan2(y - centerY, x - centerX);
+                stickX = centerX + joystickRadius * Math.cos(angle);
+                stickY = centerY + joystickRadius * Math.sin(angle);
+            }
+
+            // Update the displayed X and Y values
+            const xRelative = Math.round((stickX - centerX) / joystickRadius * 100);
+
+            // Flip the Y-axis to make it behave like a typical joystick (positive when up)
+            const yRelative = Math.round((centerY - stickY) / joystickRadius * 100);  // Invert Y calculation
+
+            xOutput.textContent = xRelative;
+            yOutput.textContent = yRelative;
+
+            drawJoystick();
+        }
+
+        // Reset the stick to the center and revert X and Y values
+        function resetStick() {
+            stickX = centerX;
+            stickY = centerY;
+            xOutput.textContent = 0; // Reset X to 0
+            yOutput.textContent = 0; // Reset Y to 0
+            drawJoystick();
+        }
+
+        // Initial drawing of the joystick
+        drawJoystick();
+    </script>
+</body>
+</html>
+
+
