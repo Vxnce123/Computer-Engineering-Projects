@@ -351,3 +351,185 @@ while True:
 </body>
 </html>
 
+////////////
+
+from time import sleep
+from machine import Pin, PWM
+import machine
+import network
+import socket
+
+In1 = Pin(16, Pin.OUT)
+In2 = Pin(17, Pin.OUT)
+EN_A = Pin(18, Pin.OUT)
+
+In3 = Pin(14, Pin.OUT)
+In4 = Pin(15, Pin.OUT)
+EN_B = Pin(13, Pin.OUT)
+
+led = Pin(0, Pin.OUT)  # LED Pin
+
+# Create PWM objects for motor speed control
+EN_A.high()
+EN_B.high()
+
+def move_forward():
+    In1.low()
+    In2.high()
+    In3.high()
+    In4.low()
+
+def move_backward():
+    In1.high()
+    In2.low()
+    In3.low()
+    In4.high()
+
+def move_stop():    
+    In1.low()
+    In2.low()
+    In3.low()
+    In4.low()
+
+def move_left():
+    In1.low()
+    In2.high()
+    In3.low()
+    In4.high()
+
+def move_right():
+    In1.high()
+    In2.low()
+    In3.high()
+    In4.low()
+    
+class Servo:
+   __servo_pwm_freq = 50
+   __min_u16_duty = 1640 - 2 # offset for correction
+   __max_u16_duty = 7864 - 0  # offset for correction
+   min_angle = 0
+   max_angle = 180
+   current_angle = 0.001
+
+   def __init__(self, pin):
+       self.__initialise(pin)
+
+   def update_settings(self, servo_pwm_freq, min_u16_duty, max_u16_duty, min_angle, max_angle, pin):
+       self.__servo_pwm_freq = servo_pwm_freq
+       self.__min_u16_duty = min_u16_duty
+       self.__max_u16_duty = max_u16_duty
+       self.min_angle = min_angle
+       self.max_angle = max_angle
+       self.__initialise(pin)
+
+   def move(self, angle):
+       # round to 2 decimal places, so we have a chance of reducing unwanted servo adjustments
+       angle = round(angle, 2)
+       # do we need to move?
+       if angle == self.current_angle:
+           return
+       self.current_angle = angle
+       # calculate the new duty cycle and move the motor
+       duty_u16 = self.__angle_to_u16_duty(angle)
+       self.__motor.duty_u16(duty_u16)
+
+
+   def __angle_to_u16_duty(self, angle):
+       return int((angle - self.min_angle) * self.__angle_conversion_factor) + self.__min_u16_duty
+
+   def __initialise(self, pin):
+       self.current_angle = -0.001
+       self.__angle_conversion_factor = (self.__max_u16_duty - self.__min_u16_duty) / (self.max_angle - self.min_angle)
+       self.__motor = PWM(Pin(pin))
+       self.__motor.freq(self.__servo_pwm_freq)
+
+
+lance = Servo(pin=19)
+
+# Wi-Fi credentials
+#ssid = "SmartRG-00ea"
+#pw = "68469c9e8f"
+ssid = "CYBERTRON"
+pw = "Mr.LamYo"
+
+# Connect to Wi-Fi
+wlan = network.WLAN(network.STA_IF)
+wlan.active(True)
+wlan.connect(ssid, pw)
+
+while not wlan.isconnected():
+    print("Connecting...")
+    sleep(1)
+print("Connected!")
+
+wlanInfo = wlan.ifconfig()
+print("My Pico's IP address is...", wlanInfo[0])
+
+# Create a global variable to store the LED state (off or on)
+led_state = False  # LED starts off
+
+# Function to read HTML content from a file
+def get_html(html_name):
+    try:
+        with open(html_name, "r") as file:
+            html = file.read()
+        return html
+    except OSError as e:
+        print(f"Error reading file {html_name}: {e}")
+        return "<html><body><h1>Error: Unable to load HTML file</h1></body></html>"
+
+# Set up the web server to listen on port 80
+addr = socket.getaddrinfo("0.0.0.0", 80)[0][-1]
+s = socket.socket()
+s.bind(addr)
+s.listen(1)
+
+print("Listening on", addr)
+
+while True:
+    try:
+        # Accept a client connection
+        client, addr = s.accept()
+        print('Client connected from', addr)
+
+        # Read the request from the client
+        request = client.recv(1024)
+        request = str(request)
+
+        print("Request received:", request)  # Debugging line to show the received request
+        
+        # Parse the request to get the path
+        try:
+            request_path = request.split()[1]
+        except IndexError:
+            request_path = ""
+        
+        print("Request Path:", request_path)  # Debugging line to show the extracted path
+
+        # Handle different control commands based on the request path
+        if request_path == '/forward?':
+            move_forward()  # Set LED to full brightness (100%)
+        elif request_path == '/stop?':
+            move_stop()  # Turn off the LED (0% brightness)
+        elif request_path == '/back?':
+            move_backward()
+        elif request_path == '/left?':
+            move_left()
+        elif request_path == '/right?':
+            move_right()
+        elif request_path == '/led/toggle':
+            lance.move(90)
+        response = get_html("index.html")
+        
+        # Send the HTML response to the client (browser)
+        client.send('HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n')
+        client.send(response)
+        client.close()  # Close the connection to the client
+
+    except OSError as e:
+        print("Socket error:", e)
+        client.close()  # Ensure that the client socket is closed in case of an error
+    except Exception as e:
+        print("Unexpected error:", e)
+        client.close()  # Ensure that the client socket is closed in case of an unexpected error
+
