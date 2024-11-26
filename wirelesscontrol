@@ -701,11 +701,11 @@ while True:
             move_left()
         elif request_path == '/right?':
             move_right()
-        elif request_path == '/led/toggle':
+        elif request_path == '/led/toggle?':
             # Toggle the lance (servo) position between 0° and 90°
             if lance_position == 0:
-                lance.move(90)
-                lance_position = 90  # Update position to 90°
+                lance.move(180)
+                lance_position = 180  # Update position to 90°
             else:
                 lance.move(0)
                 lance_position = 0  # Update position back to 0°
