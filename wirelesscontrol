@@ -537,16 +537,16 @@ while True:
 
 from time import sleep
 from machine import Pin, PWM
-import machine
 import network
 import socket
 
+# Motor Control Pins
 In1 = Pin(19, Pin.OUT)
 In2 = Pin(17, Pin.OUT)
 EN_A = Pin(18, Pin.OUT)
 
 In3 = Pin(14, Pin.OUT)
-In4 = Pin(15, Pin.OUT)
+In4 = Pin(12, Pin.OUT)
 EN_B = Pin(13, Pin.OUT)
 
 led = Pin(0, Pin.OUT)  # LED Pin
@@ -624,15 +624,18 @@ class Servo:
         self.__motor = PWM(Pin(pin))
         self.__motor.freq(self.__servo_pwm_freq)
 
-
+# Create Servo instance
 lance = Servo(pin=16)
+lance_position = 0
+# Piezo buzzer pin (e.g., Pin 15)
+piezo_pin = Pin(15, Pin.OUT)
+piezo_pwm = PWM(piezo_pin)
 
 # Wi-Fi credentials
-ssid = "SmartRG-00ea"
-pw = "68469c9e8f"
-#ssid = "CYBERTRON"
-#pw = "Mr.LamYo"
-
+#ssid = "SmartRG-00ea"
+#pw = "68469c9e8f"
+ssid = "CYBERTRON"
+pw = "Mr.LamYo"
 # Connect to Wi-Fi
 wlan = network.WLAN(network.STA_IF)
 wlan.active(True)
@@ -646,12 +649,6 @@ print("Connected!")
 wlanInfo = wlan.ifconfig()
 print("My Pico's IP address is...", wlanInfo[0])
 
-# Create a global variable to store the LED state (off or on)
-led_state = False  # LED starts off
-
-# Variable to track the servo position (0 or 90 degrees)
-lance_position = 0  # Initially at 0°
-
 # Function to read HTML content from a file
 def get_html(html_name):
     try:
@@ -661,6 +658,60 @@ def get_html(html_name):
     except OSError as e:
         print(f"Error reading file {html_name}: {e}")
         return "<html><body><h1>Error: Unable to load HTML file</h1></body></html>"
+
+notes = {
+    'C4': 261,
+    'C4#': 277,
+    'D4': 293,
+    'D4#': 311,
+    'E4': 329,
+    'F4': 349,
+    'F4#': 370,
+    'G4': 392,
+    'G4#': 415,
+    'A4': 440,
+    'A4#': 466,
+    'B4': 466,
+    'C5': 523,
+    'D5': 587,
+    'E5': 659,
+    'F5': 698,
+    'G5': 784,
+    'A5': 880,
+}
+
+# Define note durations (in seconds)
+quarter = 0.75
+half = 1
+whole = 2
+eighth = 0.25
+dotted_eighth = 0.12
+dotted_quarter = 0.5
+
+# Super Mario Theme Melody based on your input notes
+def super_mario_theme():
+    melody = [
+        # First line of notes
+        ('E5', dotted_eighth), ('E5', eighth), ('E5', eighth),
+        ('C4', dotted_eighth), ('E5', eighth), ('G5', dotted_quarter), ('G4',quarter)
+    
+        ]
+        
+
+    
+    # Piezo buzzer pin setup
+    piezo_pin = Pin(15, Pin.OUT)  # Piezo buzzer pin (GPIO15)
+    piezo_pwm = PWM(piezo_pin)
+
+    # Play the melody
+    for note, duration in melody:
+        if note in notes:
+            piezo_pwm.freq(notes[note])
+            piezo_pwm.duty_u16(32768)  # Play sound at 50% volume
+            sleep(duration)
+            piezo_pwm.duty_u16(0)  # Silence
+            sleep(0.1)  # Short pause between notes
+
 
 # Set up the web server to listen on port 80
 addr = socket.getaddrinfo("0.0.0.0", 80)[0][-1]
@@ -692,24 +743,26 @@ while True:
 
         # Handle different control commands based on the request path
         if request_path == '/forward?':
-            move_forward()  # Set LED to full brightness (100%)
+            move_forward()  # Move forward
         elif request_path == '/stop?':
-            move_stop()  # Turn off the LED (0% brightness)
+            move_stop()  # Stop movement
         elif request_path == '/back?':
-            move_backward()
+            move_backward()  # Move backward
         elif request_path == '/left?':
-            move_left()
+            move_left()  # Move left
         elif request_path == '/right?':
-            move_right()
+            move_right()  # Move right
+        elif request_path == '/music/play?':
+            super_mario_theme()
         elif request_path == '/led/toggle?':
-            # Toggle the lance (servo) position between 0° and 90°
+            print("plswork")
             if lance_position == 0:
                 lance.move(180)
                 lance_position = 180  # Update position to 90°
             else:
                 lance.move(0)
                 lance_position = 0  # Update position back to 0°
-        
+
         # Get the updated HTML page to send to the client
         response = get_html("index.html")
         
@@ -724,3 +777,5 @@ while True:
     except Exception as e:
         print("Unexpected error:", e)
         client.close()  # Ensure that the client socket is closed in case of an unexpected error
+
+
