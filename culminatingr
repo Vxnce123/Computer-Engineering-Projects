@@ -343,3 +343,366 @@ def start_server():
 
 # Start the server
 start_server()
+
+
+
+///////
+
+
+from time import sleep
+from machine import Pin, PWM, Timer
+import network
+import socket
+
+
+In1 = Pin(11, Pin.OUT)
+In2 = Pin(12, Pin.OUT)
+EN_A = Pin(13, Pin.OUT)
+
+In3 = Pin(18, Pin.OUT)
+In4 = Pin(19, Pin.OUT)
+EN_B = Pin(20, Pin.OUT)
+
+led = Pin(0, Pin.OUT) 
+
+
+led_timer = Timer() 
+led_state = False  
+
+def toggle_led(timer):
+    """Toggle the LED state."""
+    global led_state
+    led_state = not led_state  
+    led.value(led_state)  
+
+
+led_timer.init(period=500, mode=Timer.PERIODIC, callback=toggle_led)
+
+
+EN_A.high()
+EN_B.high()
+
+def move_forward():
+    In1.low()
+    In2.high()
+    In3.high()
+    In4.low()
+    print("forward")
+
+def move_backward():
+    In1.high()
+    In2.low()
+    In3.low()
+    In4.high()
+    print("backwards")
+
+def move_stop():    
+    In1.low()
+    In2.low()
+    In3.low()
+    In4.low()
+    print("stop")
+
+def move_left():
+    In1.low()
+    In2.high()
+    In3.low()
+    In4.high()
+    print("left")
+
+def move_right():
+    In1.high()
+    In2.low()
+    In3.high()
+    In4.low()
+    print("right")
+
+
+class Servo:
+    __servo_pwm_freq = 50
+    __min_u16_duty = 1640 - 2 # offset for correction
+    __max_u16_duty = 7864 - 0  # offset for correction
+    min_angle = 0
+    max_angle = 180
+    current_angle = 0.001
+
+    def __init__(self, pin):
+        self.__initialise(pin)
+
+    def update_settings(self, servo_pwm_freq, min_u16_duty, max_u16_duty, min_angle, max_angle, pin):
+        self.__servo_pwm_freq = servo_pwm_freq
+        self.__min_u16_duty = min_u16_duty
+        self.__max_u16_duty = max_u16_duty
+        self.min_angle = min_angle
+        self.max_angle = max_angle
+        self.__initialise(pin)
+
+    def move(self, angle):
+        angle = round(angle, 2)
+        if angle == self.current_angle:
+            return
+        self.current_angle = angle
+        duty_u16 = self.__angle_to_u16_duty(angle)
+        self.__motor.duty_u16(duty_u16)
+
+    def __angle_to_u16_duty(self, angle):
+        return int((angle - self.min_angle) * self.__angle_conversion_factor) + self.__min_u16_duty
+
+    def __initialise(self, pin):
+        self.current_angle = -0.001
+        self.__angle_conversion_factor = (self.__max_u16_duty - self.__min_u16_duty) / (self.max_angle - self.min_angle)
+        self.__motor = PWM(Pin(pin))
+        self.__motor.freq(self.__servo_pwm_freq)
+
+# Create Servo instance
+lance = Servo(pin=16)
+lance_position = 0
+
+# Wi-Fi configuration
+ssid = "SmartRG-00ea"
+pw = "68469c9e8f"
+
+wlan = network.WLAN(network.STA_IF)
+wlan.active(True)
+wlan.connect(ssid, pw)
+
+while not wlan.isconnected():
+    print("Connecting...")
+    sleep(1)
+print("Connected!")
+
+wlanInfo = wlan.ifconfig()
+print("My Pico's IP address is...", wlanInfo[0])
+
+# Start the web server to handle requests
+def handle_request(request):
+    """Handle HTTP requests."""
+    global lance_position  # Make sure the lance_position is accessible here
+
+    if 'forward' in request:
+        move_forward()
+    elif 'backward' in request:
+        move_backward()
+    elif 'left' in request:
+        move_left()
+    elif 'right' in request:
+        move_right()
+    elif 'stop' in request:
+        move_stop()
+    elif 'servo' in request:
+        # Toggle the lance position between 0 and 180 degrees
+        if lance_position == 0:
+            lance_position = 180
+        else:
+            lance_position = 0
+        lance.move(lance_position)  # Move the servo to the new position
+    else:
+        return "Unknown command"
+    return "Command executed"
+
+def get_html():
+    return """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bruticus</title>
+    <style>
+        body {
+            margin: 0;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 0;
+            position: relative;
+            background-color: #D3D3D3;
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+        }
+
+        h1 {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 48px;
+            color: #FF1C1C;
+            margin: 0;
+            text-align: center;
+        }
+
+        .controls {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            padding: 0;
+        }
+
+        .row {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+        }
+
+        button {
+            all: unset;
+            cursor: pointer;
+            background: transparent;
+            border: none;
+            position: relative;
+            transition: all 0.3s ease;
+        }
+
+        .button {
+            width: 0;
+            height: 0;
+            margin: 5px;
+        }
+
+        .forward {
+            border-bottom: 60px solid #ffd33e;
+            border-left: 30px solid transparent;
+            border-right: 30px solid transparent;
+        }
+
+        .back {
+            border-top: 60px solid #ffd33e;
+            border-left: 30px solid transparent;
+            border-right: 30px solid transparent;
+        }
+
+        .left {
+            border-top: 30px solid transparent;
+            border-bottom: 30px solid transparent;
+            border-right: 60px solid #ffd33e;
+        }
+
+        .right {
+            border-top: 30px solid transparent;
+            border-bottom: 30px solid transparent;
+            border-left: 60px solid #ffd33e;
+        }
+
+        .stop {
+            width: 70px;
+            height: 70px;
+            background-color: #BF40BF;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            font-size: 18px;
+            color: white;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .toggle-button {
+            width: 100px;
+            height: 100px;
+            background-color: #317ccc;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            font-size: 50px;
+            color: white;
+            cursor: pointer;
+            position: absolute;
+            transition: all 0.3s ease;
+        }
+
+        .music-button {
+            width: 100px;
+            height: 100px;
+            background-color: #78a043;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            font-size: 50px;
+            color: white;
+            cursor: pointer;
+            position: absolute;
+            transition: all 0.3s ease;
+        }
+
+        .music-button {
+            bottom: 90px;
+            right: 0px;
+        }
+
+        .toggle-button {
+            bottom: 10px;
+            right: 70px;
+        }
+
+        .active {
+            background-color: #559eed;
+            transform: scale(0.95);
+            color: black;
+        }
+        
+    </style>
+</head>
+<body>
+    <h1>Bruticus</h1>
+    <div class="controls">
+        <button class="button forward" onclick="sendCommand('forward')"></button>
+        <div class="row">
+            <button class="button left" onclick="sendCommand('left')"></button>
+            <button class="stop" onclick="sendCommand('stop')">Stop</button>
+            <button class="button right" onclick="sendCommand('right')"></button>
+        </div>
+        <button class="button back" onclick="sendCommand('backward')"></button>
+    </div>
+    <button class="music-button" onclick="sendCommand('music')">text</button>
+    <button class="toggle-button" onclick="toggleButton()">text</button>
+
+    <script>
+        function sendCommand(command) {
+            var xhr = new XMLHttpRequest();
+            xhr.open("GET", "/" + command, true);
+            xhr.send();
+        }
+
+        function toggleButton() {
+            var toggleButton = document.querySelector('.toggle-button');
+            toggleButton.classList.toggle('active');
+            sendCommand('servo');
+        }
+    </script>
+</body>
+</html>
+"""
+
+# Set up the web server
+def start_server():
+    addr = socket.getaddrinfo(wlanInfo[0], 80)[0][-1]
+    s = socket.socket()
+    s.bind(addr)
+    s.listen(1)
+    print('Listening on', addr)
+
+    while True:
+        cl, addr = s.accept()
+        
+        request = cl.recv(1024)
+        request = str(request)
+       
+        response = handle_request(request)
+        cl.send('HTTP/1.1 200 OK\r\n')
+        cl.send('Content-Type: text/html\r\n')
+        cl.send('\r\n')
+        cl.send(get_html())
+        cl.close()
+
+# Start the server
+start_server()
+
+
