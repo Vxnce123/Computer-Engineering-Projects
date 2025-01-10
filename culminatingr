@@ -13,6 +13,7 @@ In4 = Pin(19, Pin.OUT)
 EN_B = Pin(20, Pin.OUT)
 
 led = Pin(0, Pin.OUT) 
+indicate = Pin(1, Pin.OUT)
 
 
 led_timer = Timer() 
@@ -129,6 +130,7 @@ print("Connected!")
 wlanInfo = wlan.ifconfig()
 print("My Pico's IP address is...", wlanInfo[0])
 
+indicate.value(1)
 
 def handle_request(request):
     """Handle HTTP requests."""
@@ -347,16 +349,13 @@ def start_server():
 
     while True:
         cl, addr = s.accept()
-        
-        request = cl.recv(1024)
-        request = str(request)
-       
+        request = cl.recv(1024).decode('utf-8')
+
         response = handle_request(request)
-        cl.send('HTTP/1.1 200 OK\r\n')
-        cl.send('Content-Type: text/html\r\n')
-        cl.send('\r\n')
-        cl.send(get_html())
+        cl.send('HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n')
+        cl.send(get_html() if response == "Command executed" else response)
         cl.close()
+        
 
 start_server()
 
