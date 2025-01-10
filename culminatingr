@@ -1,20 +1,33 @@
 from time import sleep
-from machine import Pin, PWM
+from machine import Pin, PWM, Timer
 import network
 import socket
 
-# Motor Control Pins
-In1 = Pin(19, Pin.OUT)
-In2 = Pin(17, Pin.OUT)
-EN_A = Pin(18, Pin.OUT)
 
-In3 = Pin(14, Pin.OUT)
-In4 = Pin(12, Pin.OUT)
-EN_B = Pin(13, Pin.OUT)
+In1 = Pin(11, Pin.OUT)
+In2 = Pin(12, Pin.OUT)
+EN_A = Pin(13, Pin.OUT)
 
-led = Pin(0, Pin.OUT)  # LED Pin
+In3 = Pin(18, Pin.OUT)
+In4 = Pin(19, Pin.OUT)
+EN_B = Pin(20, Pin.OUT)
 
-# Create PWM objects for motor speed control
+led = Pin(0, Pin.OUT) 
+
+
+led_timer = Timer() 
+led_state = False  
+
+def toggle_led(timer):
+    """Toggle the LED state."""
+    global led_state
+    led_state = not led_state  
+    led.value(led_state)  
+
+
+led_timer.init(period=500, mode=Timer.PERIODIC, callback=toggle_led)
+
+
 EN_A.high()
 EN_B.high()
 
@@ -52,12 +65,15 @@ def move_right():
     In3.high()
     In4.low()
     print("right")
+    
+def stab():
+    lance.move(90)
 
 
 class Servo:
     __servo_pwm_freq = 50
-    __min_u16_duty = 1640 - 2 # offset for correction
-    __max_u16_duty = 7864 - 0  # offset for correction
+    __min_u16_duty = 1640 - 2 
+    __max_u16_duty = 7864 - 0  
     min_angle = 0
     max_angle = 180
     current_angle = 0.001
@@ -90,14 +106,17 @@ class Servo:
         self.__motor = PWM(Pin(pin))
         self.__motor.freq(self.__servo_pwm_freq)
 
-# Create Servo instance
+
 lance = Servo(pin=16)
 lance_position = 0
 
 
-# Wi-Fi credentials
+#ssid = "SmartRG-00ea"
+#pw = "68469c9e8f"
 ssid = "CYBERTRON"
 pw = "Mr.LamYo"
+
+
 wlan = network.WLAN(network.STA_IF)
 wlan.active(True)
 wlan.connect(ssid, pw)
@@ -110,10 +129,10 @@ print("Connected!")
 wlanInfo = wlan.ifconfig()
 print("My Pico's IP address is...", wlanInfo[0])
 
-# Start the web server to handle requests
+
 def handle_request(request):
     """Handle HTTP requests."""
-    global lance_position  # Make sure the lance_position is accessible here
+    global lance_position  
 
     if 'forward' in request:
         move_forward()
@@ -125,14 +144,15 @@ def handle_request(request):
         move_right()
     elif 'stop' in request:
         move_stop()
-        
+    elif 'stab' in request:
+        stab()
     elif 'servo' in request:
-        # Toggle the lance position between 0 and 180 degrees
+       
         if lance_position == 0:
             lance_position = 180
         else:
             lance_position = 0
-        lance.move(lance_position)  # Move the servo to the new position
+        lance.move(lance_position) 
     else:
         return "Unknown command"
     return "Command executed"
@@ -298,8 +318,8 @@ def get_html():
         </div>
         <button class="button back" onclick="sendCommand('backward')"></button>
     </div>
-    <button class="music-button" onclick="sendCommand('music')">text</button>
-    <button class="toggle-button" onclick="toggleButton()">text</button>
+    <button class="music-button" onclick="sendCommand('stab')">Stab</button>
+    <button class="toggle-button" onclick="toggleButton()">Swing</button>
 
     <script>
         function sendCommand(command) {
@@ -316,11 +336,8 @@ def get_html():
     </script>
 </body>
 </html>
-
-
 """
 
-# Set up the web server
 def start_server():
     addr = socket.getaddrinfo(wlanInfo[0], 80)[0][-1]
     s = socket.socket()
@@ -341,9 +358,7 @@ def start_server():
         cl.send(get_html())
         cl.close()
 
-# Start the server
 start_server()
-
 
 
 ///////
